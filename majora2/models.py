@@ -1141,6 +1141,7 @@ class BiosampleArtifact(MajoraArtifact):
     root_sample_id = models.CharField(max_length=48, blank=True, null=True)
     sender_sample_id = models.CharField(max_length=48, blank=True, null=True)
     central_sample_id = models.CharField(max_length=48, blank=True, null=True, unique=True)
+    anonymous_sample_id = models.CharField(max_length=48, blank=True, null=True, unique=True)
 
     sample_type_collected = models.CharField(max_length=24, blank=True, null=True)        #THIS should be a lookup
     sample_site = models.CharField(max_length=24, blank=True, null=True)        #THIS should be a lookup
@@ -1195,6 +1196,7 @@ class BiosampleArtifact(MajoraArtifact):
 
         ret = {
             "central_sample_id": self.central_sample_id,
+            "anonymous_sample_id": self.anonymous_sample_id,
             #"sender_sample_id": self.sender_sample_id,
             "root_sample_id": self.root_sample_id,
             "sample_type_collected": self.sample_type_collected,

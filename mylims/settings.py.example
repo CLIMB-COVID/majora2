@@ -290,3 +290,13 @@ CORS_URLS_ALLOW_ALL_REGEX = r'^/o/token/$'
 
 # CONTACTS
 MAJORA_ACCOUNT_MAIL = ""
+
+# ZANA
+ZANA_HOST = ""
+ZANA_PORT = ""
+
+# Pool for BiosampleArtifact anonymous_sample_id
+ZANA_POOL_ANON = ""
+
+# Prefixes accepted for anonymous_sample_id
+ANON_PREFIXES = []

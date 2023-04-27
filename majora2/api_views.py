@@ -22,6 +22,7 @@ from .form_handlers import _format_tuple
 import json
 import uuid
 import datetime
+import requests
 
 from tatl.models import TatlVerb, TatlTask
 
@@ -999,6 +1000,33 @@ class BiosampleArtifactEndpointView(MajoraEndpointView):
                         api_o["ignored"].append(sample_id)
                         api_o["messages"].append("Cannot use `partial` on empty BiosampleArtifact %s" % sample_id)
                         continue
+                else:
+                    # If an anonymous_sample_id was not provided, issue one from ZANA
+                    if not biosample.get("anonymous_sample_id"):
+                        # Use the central_sample_id as the ZANA linkage_id
+                        if not sample_id:
+                            api_o["errors"] += 1
+                            api_o["messages"].append("'central_sample_id' key missing or empty")
+                            continue
+
+                        # Request the anonymous_sample_id
+                        response = requests.post(
+                            "http://%s:%s/issue" % (settings.ZANA_HOST, settings.ZANA_PORT),
+                            json={
+                                "org_code" : settings.ZANA_POOL_ANON,
+                                "prefix" : settings.ZANA_POOL_ANON,
+                                "pool" : settings.ZANA_POOL_ANON,
+                                "linkage_id" : sample_id,
+                            }
+                        )
+
+                        if not response.ok:
+                            api_o["errors"] += 1
+                            api_o["ignored"].append(sample_id)
+                            api_o["messages"].append("Failed to issue anonymous_sample_id. Please try again. If the issue persists, contact a system administrator.")
+                            continue
+
+                        biosample["anonymous_sample_id"] = response.json()["zeal"]
 
                 # Pre screen the cog uk supplementary form
                 coguk_supp_form = forms.COGUK_BiosourceSamplingProcessSupplement_ModelForm(biosample, initial=initial, instance=supp, partial=partial)

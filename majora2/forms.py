@@ -6,6 +6,7 @@ from django.contrib.auth.models import User
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.functional import cached_property
+from django.conf import settings
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Fieldset, Submit, Row, Column
@@ -647,6 +648,7 @@ class BiosampleArtifactModelForm(MajoraPossiblePartialModelForm):
             "root_sample_id",
             "sender_sample_id",
             "central_sample_id",
+            "anonymous_sample_id",
             "sample_type_collected",
             "sample_type_current",
             "sample_site",
@@ -692,6 +694,25 @@ class BiosampleArtifactModelForm(MajoraPossiblePartialModelForm):
                 if ch in central_sample_id:
                     self.add_error("central_sample_id", "central_sample_id cannot contain a reserved character: %s" % str(reserved_ch))
                     break
+
+	# Validate anonymous_sample_id
+        anonymous_sample_id = cleaned_data.get("anonymous_sample_id")
+        if anonymous_sample_id:
+            # Validate for reserved characters
+            reserved_ch = [".", "/", "\\"]
+            for ch in reserved_ch:
+                if ch in anonymous_sample_id:
+                    self.add_error("anonymous_sample_id", "anonymous_sample_id cannot contain a reserved character: %s" % str(reserved_ch))
+                    break
+            
+            # Validate for prefix-postfix structure
+            prefix, _, postfix = anonymous_sample_id.partition("-")
+            if (not prefix) or (not postfix) or ("-" in postfix):
+                self.add_error("anonymous_sample_id", "anonymous_sample_id must consist of a prefix and postfix, separated by a single '-' character")
+
+            # Validate for accepted prefixes
+            if settings.ANON_PREFIXES and (prefix not in settings.ANON_PREFIXES):
+                self.add_error("anonymous_sample_id", "anonymous_sample_id has an invalid prefix: %s" % prefix)
 
         # Validate swab site
         swab_site = cleaned_data.get("sample_site")
