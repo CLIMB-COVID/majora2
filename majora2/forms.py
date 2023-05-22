@@ -601,6 +601,28 @@ class MajoraPossiblePartialModelForm(forms.ModelForm):
         }
 
 
+def validate_anonymous_sample_id(anonymous_sample_id):
+    errors = []
+
+    # Check for correct prefix-postfix structure
+    prefix, _, postfix = anonymous_sample_id.partition("-")
+    if (not prefix) or (not postfix) or ("-" in postfix):
+        errors.append("anonymous_sample_id must consist of a prefix and postfix, separated by a single '-' character")
+
+    # Check an accepted prefix was used
+    if settings.ANON_PREFIXES and (prefix not in settings.ANON_PREFIXES):
+        errors.append("anonymous_sample_id has an invalid prefix: %s" % prefix)
+    
+    # Check the postfix is of correct length
+    if len(postfix) != settings.ANON_POSTFIX_LENGTH:
+        errors.append("anonymous_sample_id must have a postfix of length %s, but received a postfix of length: %s" % (settings.ANON_POSTFIX_LENGTH, len(postfix)))
+
+    # Check the postfix only uses alphanumeric characters
+    if not postfix.isalnum():
+        errors.append("anonymous_sample_id postfix can only contain alphanumeric characters")
+
+    return errors
+
 
 class BiosampleArtifactModelForm(MajoraPossiblePartialModelForm):
 
@@ -674,6 +696,9 @@ class BiosampleArtifactModelForm(MajoraPossiblePartialModelForm):
             "sample_type_collected",
             "sample_type_received",
         ]
+        UPPERCASE_FIELDS = [
+            "anonymous_sample_id",
+        ]
 
     def modify_preform(self, data):
         for field in getattr(self.Meta, "LOWERCASE_FIELDS", []):
@@ -681,6 +706,9 @@ class BiosampleArtifactModelForm(MajoraPossiblePartialModelForm):
                 data[field] = data[field].strip()
                 if data[field] != "BAL":
                     data[field] = data[field].strip().lower()
+        for field in getattr(self.Meta, "UPPERCASE_FIELDS", []):
+            if data.get(field):
+                data[field] = data[field].strip().upper()
         return data
 
     def clean(self):
@@ -695,24 +723,13 @@ class BiosampleArtifactModelForm(MajoraPossiblePartialModelForm):
                     self.add_error("central_sample_id", "central_sample_id cannot contain a reserved character: %s" % str(reserved_ch))
                     break
 
-	# Validate anonymous_sample_id
+	    # Validate anonymous_sample_id
         anonymous_sample_id = cleaned_data.get("anonymous_sample_id")
         if anonymous_sample_id:
-            # Validate for reserved characters
-            reserved_ch = [".", "/", "\\"]
-            for ch in reserved_ch:
-                if ch in anonymous_sample_id:
-                    self.add_error("anonymous_sample_id", "anonymous_sample_id cannot contain a reserved character: %s" % str(reserved_ch))
-                    break
-            
-            # Validate for prefix-postfix structure
-            prefix, _, postfix = anonymous_sample_id.partition("-")
-            if (not prefix) or (not postfix) or ("-" in postfix):
-                self.add_error("anonymous_sample_id", "anonymous_sample_id must consist of a prefix and postfix, separated by a single '-' character")
+            errors = validate_anonymous_sample_id(anonymous_sample_id)
 
-            # Validate for accepted prefixes
-            if settings.ANON_PREFIXES and (prefix not in settings.ANON_PREFIXES):
-                self.add_error("anonymous_sample_id", "anonymous_sample_id has an invalid prefix: %s" % prefix)
+            for error in errors:
+                self.add_error("anonymous_sample_id", error)
 
         # Validate swab site
         swab_site = cleaned_data.get("sample_site")

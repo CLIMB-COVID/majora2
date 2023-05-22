@@ -1161,6 +1161,8 @@ class BiosampleArtifact(MajoraArtifact):
     class Meta:
         permissions = [
             ("force_add_biosampleartifact", "Can forcibly add a biosample artifact to Majora"),
+            ("can_add_anonymous_sample_id", "Can add the anonymous_sample_id of a biosample artifact"),
+            ("can_change_anonymous_sample_id", "Can change the anonymous_sample_id of a biosample artifact"),
         ]
 
     @classmethod

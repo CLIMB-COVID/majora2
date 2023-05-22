@@ -300,3 +300,6 @@ ZANA_POOL_ANON = ""
 
 # Prefixes accepted for anonymous_sample_id
 ANON_PREFIXES = []
+
+# Postfix length for anonymous_sample_id
+ANON_POSTFIX_LENGTH = 8
