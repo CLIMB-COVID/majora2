@@ -9,6 +9,7 @@ from django.views import View
 
 from django.contrib.auth.models import User
 from django.conf import settings
+from django.db import transaction
 
 from . import models
 from . import util
@@ -22,6 +23,9 @@ from .form_handlers import _format_tuple
 import json
 import uuid
 import datetime
+import requests
+import time
+import random
 
 from tatl.models import TatlVerb, TatlTask
 
@@ -833,6 +837,37 @@ def add_metrics(request):
     return wrap_api_v2(request, f)
 
 
+def zana_issue_anonymous_sample_id(sample_id):
+    # Attempt multiple tries to get the anonymous_sample_id
+    # ZANA already has a built-in instantaneous retry of 3 times
+    # But under heavy load, it can still return 'out of zeal'
+    # These slightly-random retries are to further reduce the likelihood of that happening
+    sleep = 0
+    zeal = None
+    while (not zeal) and sleep < 10:
+        # Request the anonymous_sample_id
+        # By using the central_sample_id as the linkage_id,
+        # exactly one anonymous_sample_id will be issued per central_sample_id
+        response = requests.post(
+            "http://%s:%s/issue" % (settings.ZANA_HOST, settings.ZANA_PORT),
+            json={
+                "org_code" : settings.ZANA_POOL_ANON,
+                "prefix" : settings.ZANA_POOL_ANON,
+                "pool" : settings.ZANA_POOL_ANON,
+                "linkage_id" : sample_id,
+            }
+        )
+        if response.ok:
+            zeal = response.json()["zeal"]
+        else:
+            # Sleep 0 - 1 seconds
+            nap = random.random()
+            time.sleep(nap)
+            sleep += nap
+    
+    return zeal
+
+
 # NOTE samstudio8 2021-05-25
 # This endpoint was initially a workaround to support biosamples without metadata
 # and allow downstream processes depending on them to be submitted without error,
@@ -866,9 +901,11 @@ def addempty_biosample(request):
         for sample_id in biosamples:
             try:
                 sender_sample_id = None
+                anonymous_sample_id = None
                 if isinstance(sample_id, dict):
                     central_sample_id = sample_id["central_sample_id"]
                     sender_sample_id = sample_id.get("sender_sample_id")
+                    anonymous_sample_id = sample_id.get("anonymous_sample_id")
                     sample_metadata = sample_id.get("metadata", {})
                 elif isinstance(sample_id, str):
                     central_sample_id = sample_id
@@ -879,12 +916,99 @@ def addempty_biosample(request):
                 api_o["warnings"] += 1
                 api_o["messages"].append("'biosamples' appears malformed")
                 continue
+            
+            if not central_sample_id:
+                api_o["errors"] += 1
+                api_o["messages"].append("'central_sample_id' key missing or empty")
+                continue
+
+            # Get pre-existing biosample
+            bs = models.BiosampleArtifact.objects.filter(
+                central_sample_id=central_sample_id, 
+                dice_name=central_sample_id,
+            ).first()
+
+            # Get pre-existing anonymous_sample_id
+            bs_anonymous_sample_id = None
+            if bs and hasattr(bs, "anonymous_sample_id"):
+                bs_anonymous_sample_id = bs.anonymous_sample_id      
+
+            if anonymous_sample_id:
+                # The user has provided an id
+                # Check their permissions to do so
+                if bs_anonymous_sample_id:
+                    # An id exists on the biosample
+                    # If the user does not have permission to change it, reject
+                    if anonymous_sample_id != bs_anonymous_sample_id and not user.has_perm("majora2.can_change_anonymous_sample_id"):
+                        api_o["errors"] += 1
+                        api_o["ignored"].append(central_sample_id)
+                        api_o["messages"].append("You do not have permission to change the anonymous_sample_id on BiosampleArtifact %s" % central_sample_id)
+                        continue
+                else:
+                    # An id does not exist on the biosample
+                    # If the user does not have permission to add one, reject
+                    if not user.has_perm("majora2.can_add_anonymous_sample_id"):
+                        api_o["errors"] += 1
+                        api_o["ignored"].append(central_sample_id)
+                        api_o["messages"].append("You do not have permission to add the anonymous_sample_id on BiosampleArtifact %s" % central_sample_id)
+                        continue           
+            else:
+                # The user has not provided an id
+                if bs_anonymous_sample_id:
+                    # An id already exists on the biosample
+                    # This is not a PUT operation, so don't need to do anything
+                    pass
+                else:
+                    if settings.ISSUE_ZANA_IDS:
+                        # There is no id on the biosample
+                        # So issue a new id from ZANA
+                        # Use the central_sample_id as the ZANA linkage_id
+                        zeal = zana_issue_anonymous_sample_id(central_sample_id)
+                            
+                        if zeal:
+                            # Issued id successfully
+                            anonymous_sample_id = zeal
+                        else:
+                            # Failed to issue the id, reject
+                            api_o["errors"] += 1
+                            api_o["ignored"].append(central_sample_id)
+                            api_o["messages"].append("Failed to issue anonymous_sample_id. Please try again. If the issue persists, contact a system administrator.")
+                            continue
+                    else:
+                        api_o["warnings"] += 1
+                        api_o["messages"].append("ZANA has not been enabled to issue the anonymous_sample_id. If you wish to enable this behaviour, contact a system administrator.")
+
+            # Validate central_sample_id and anonymous_sample_id pairing+uniqueness using the biosample form
+            if anonymous_sample_id:
+                sample_form = forms.BiosampleArtifactModelForm(
+                    {"central_sample_id" : central_sample_id, "anonymous_sample_id" : anonymous_sample_id}, 
+                    initial={}, 
+                    instance=bs, 
+                    partial=True,
+                )
+                if not sample_form.is_valid():
+                    api_o["errors"] += 1
+                    api_o["ignored"].append(central_sample_id)
+                    api_o["messages"].append(sample_form.errors.get_json_data())
+                    continue
 
             # Make dummy sample
-            biosample, created = models.BiosampleArtifact.objects.get_or_create(
-                    central_sample_id=central_sample_id,
-                    dice_name=central_sample_id,
-            )
+            try:
+                with transaction.atomic():
+                    biosample, created = models.BiosampleArtifact.objects.get_or_create(
+                            central_sample_id=central_sample_id,
+                            dice_name=central_sample_id,
+                    )
+                    # Attach the anonymous_sample_id
+                    if anonymous_sample_id and anonymous_sample_id != biosample.anonymous_sample_id:
+                        biosample.anonymous_sample_id = anonymous_sample_id
+                        biosample.save()
+            except Exception as e:
+                api_o["errors"] += 1
+                api_o["ignored"].append(central_sample_id)
+                api_o["messages"].append(str(e))
+                continue
+
             if created:
                 TatlVerb(request=request.treq, verb="CREATE", content_object=biosample).save()
                 api_o["new"].append(_format_tuple(biosample))
@@ -975,10 +1099,16 @@ class BiosampleArtifactEndpointView(MajoraEndpointView):
                 sample_id = biosample.get("central_sample_id")
                 initial = fixed_data.fill_fixed_data("api.artifact.biosample.add", user)
 
+                if not sample_id:
+                    api_o["errors"] += 1
+                    api_o["messages"].append("'central_sample_id' key missing or empty")
+                    continue
+
                 # Fetch objects for update (if applicable)
                 supp = None
                 sample_p = None
                 source = None
+                bs_anonymous_sample_id = None
                 bs = models.BiosampleArtifact.objects.filter(central_sample_id=sample_id).first()
                 if bs:
                     if hasattr(bs, "created"):
@@ -987,6 +1117,8 @@ class BiosampleArtifactEndpointView(MajoraEndpointView):
                         supp = bs.created.coguk_supp
                     if hasattr(bs, "primary_group"):
                         source = bs.primary_group
+                    if hasattr(bs, "anonymous_sample_id"):
+                        bs_anonymous_sample_id = bs.anonymous_sample_id
 
                 if partial:
                     if not bs:
@@ -999,6 +1131,52 @@ class BiosampleArtifactEndpointView(MajoraEndpointView):
                         api_o["ignored"].append(sample_id)
                         api_o["messages"].append("Cannot use `partial` on empty BiosampleArtifact %s" % sample_id)
                         continue
+
+                if biosample.get("anonymous_sample_id"):
+                    # The user has provided an id
+                    # Check their permissions to do so
+                    if bs_anonymous_sample_id:
+                        # An id exists on the biosample
+                        # If the user does not have permission to change it, reject
+                        if biosample.get("anonymous_sample_id") != bs_anonymous_sample_id and not user.has_perm("majora2.can_change_anonymous_sample_id"):
+                            api_o["errors"] += 1
+                            api_o["ignored"].append(sample_id)
+                            api_o["messages"].append("You do not have permission to change the anonymous_sample_id on BiosampleArtifact %s" % sample_id)
+                            continue
+                    else:
+                        # An id does not exist on the biosample
+                        # If the user does not have permission to add one, reject
+                        if not user.has_perm("majora2.can_add_anonymous_sample_id"):
+                            api_o["errors"] += 1
+                            api_o["ignored"].append(sample_id)
+                            api_o["messages"].append("You do not have permission to add the anonymous_sample_id on BiosampleArtifact %s" % sample_id)
+                            continue
+                else:
+                    # The user has not provided an id
+                    if bs_anonymous_sample_id:
+                        # An id already exists on the biosample
+                        if not partial:
+                            # This is a PUT operation, so to retain the id, it needs re-assigning
+                            biosample["anonymous_sample_id"] = bs_anonymous_sample_id
+                    else:
+                        if settings.ISSUE_ZANA_IDS:
+                            # There is no id on the biosample
+                            # So issue a new id from ZANA
+                            # Use the central_sample_id as the ZANA linkage_id
+                            zeal = zana_issue_anonymous_sample_id(sample_id)
+                            
+                            if zeal:
+                                # Issued id successfully
+                                biosample["anonymous_sample_id"] = zeal
+                            else:
+                                # Failed to issue the id, reject
+                                api_o["errors"] += 1
+                                api_o["ignored"].append(sample_id)
+                                api_o["messages"].append("Failed to issue anonymous_sample_id. Please try again. If the issue persists, contact a system administrator.")
+                                continue
+                        else:
+                            api_o["warnings"] += 1
+                            api_o["messages"].append("ZANA has not been enabled to issue the anonymous_sample_id. If you wish to enable this behaviour, contact a system administrator.")
 
                 # Pre screen the cog uk supplementary form
                 coguk_supp_form = forms.COGUK_BiosourceSamplingProcessSupplement_ModelForm(biosample, initial=initial, instance=supp, partial=partial)
