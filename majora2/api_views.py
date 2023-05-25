@@ -959,20 +959,24 @@ def addempty_biosample(request):
                     # This is not a PUT operation, so don't need to do anything
                     pass
                 else:
-                    # There is no id on the biosample
-                    # So issue a new id from ZANA
-                    # Use the central_sample_id as the ZANA linkage_id
-                    zeal = zana_issue_anonymous_sample_id(central_sample_id)
-                        
-                    if zeal:
-                        # Issued id successfully
-                        anonymous_sample_id = zeal
+                    if settings.ISSUE_ZANA_IDS:
+                        # There is no id on the biosample
+                        # So issue a new id from ZANA
+                        # Use the central_sample_id as the ZANA linkage_id
+                        zeal = zana_issue_anonymous_sample_id(central_sample_id)
+                            
+                        if zeal:
+                            # Issued id successfully
+                            anonymous_sample_id = zeal
+                        else:
+                            # Failed to issue the id, reject
+                            api_o["errors"] += 1
+                            api_o["ignored"].append(central_sample_id)
+                            api_o["messages"].append("Failed to issue anonymous_sample_id. Please try again. If the issue persists, contact a system administrator.")
+                            continue
                     else:
-                        # Failed to issue the id, reject
-                        api_o["errors"] += 1
-                        api_o["ignored"].append(central_sample_id)
-                        api_o["messages"].append("Failed to issue anonymous_sample_id. Please try again. If the issue persists, contact a system administrator.")
-                        continue
+                        api_o["warnings"] += 1
+                        api_o["messages"].append("ZANA has not been enabled to issue the anonymous_sample_id. If you wish to enable this behaviour, contact a system administrator.")
 
             # Validate central_sample_id and anonymous_sample_id pairing+uniqueness using the biosample form
             if anonymous_sample_id:
@@ -1155,20 +1159,24 @@ class BiosampleArtifactEndpointView(MajoraEndpointView):
                             # This is a PUT operation, so to retain the id, it needs re-assigning
                             biosample["anonymous_sample_id"] = bs_anonymous_sample_id
                     else:
-                        # There is no id on the biosample
-                        # So issue a new id from ZANA
-                        # Use the central_sample_id as the ZANA linkage_id
-                        zeal = zana_issue_anonymous_sample_id(sample_id)
-                        
-                        if zeal:
-                            # Issued id successfully
-                            biosample["anonymous_sample_id"] = zeal
+                        if settings.ISSUE_ZANA_IDS:
+                            # There is no id on the biosample
+                            # So issue a new id from ZANA
+                            # Use the central_sample_id as the ZANA linkage_id
+                            zeal = zana_issue_anonymous_sample_id(sample_id)
+                            
+                            if zeal:
+                                # Issued id successfully
+                                biosample["anonymous_sample_id"] = zeal
+                            else:
+                                # Failed to issue the id, reject
+                                api_o["errors"] += 1
+                                api_o["ignored"].append(sample_id)
+                                api_o["messages"].append("Failed to issue anonymous_sample_id. Please try again. If the issue persists, contact a system administrator.")
+                                continue
                         else:
-                            # Failed to issue the id, reject
-                            api_o["errors"] += 1
-                            api_o["ignored"].append(sample_id)
-                            api_o["messages"].append("Failed to issue anonymous_sample_id. Please try again. If the issue persists, contact a system administrator.")
-                            continue
+                            api_o["warnings"] += 1
+                            api_o["messages"].append("ZANA has not been enabled to issue the anonymous_sample_id. If you wish to enable this behaviour, contact a system administrator.")
 
                 # Pre screen the cog uk supplementary form
                 coguk_supp_form = forms.COGUK_BiosourceSamplingProcessSupplement_ModelForm(biosample, initial=initial, instance=supp, partial=partial)

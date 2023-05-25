@@ -291,15 +291,11 @@ CORS_URLS_ALLOW_ALL_REGEX = r'^/o/token/$'
 # CONTACTS
 MAJORA_ACCOUNT_MAIL = ""
 
-# ZANA
+# Configuration settings for the anonymous_sample_id
+ISSUE_ZANA_IDS = True # Set to False if you don't want ZANA to issue ids
 ZANA_HOST = ""
 ZANA_PORT = ""
+ZANA_POOL_ANON = "" # Pool for BiosampleArtifact anonymous_sample_id
 
-# Pool for BiosampleArtifact anonymous_sample_id
-ZANA_POOL_ANON = ""
-
-# Prefixes accepted for anonymous_sample_id
-ANON_PREFIXES = []
-
-# Postfix length for anonymous_sample_id
-ANON_POSTFIX_LENGTH = 8
+ANON_PREFIXES = [] # Prefixes accepted for anonymous_sample_id
+ANON_POSTFIX_LENGTH = 8 # Postfix length for anonymous_sample_id
