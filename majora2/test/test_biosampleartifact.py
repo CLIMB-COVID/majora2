@@ -20,17 +20,21 @@ import requests
 default_central_sample_id = "HOOT-00001"
 default_central_sample_id_2 = "HOOT-00002"
 
-response = requests.post(
-                "http://%s:%s/issue" % (settings.ZANA_HOST, settings.ZANA_PORT),
-                json={
-                    "org_code" : settings.ZANA_POOL_ANON,
-                    "prefix" : settings.ZANA_POOL_ANON,
-                    "pool" : settings.ZANA_POOL_ANON,
-                    "linkage_id" : default_central_sample_id,
-                }
-            )
-assert response.ok
-default_anonymous_sample_id = response.json()["zeal"]
+if settings.ISSUE_ZANA_IDS:
+    response = requests.post(
+                    "http://%s:%s/issue" % (settings.ZANA_HOST, settings.ZANA_PORT),
+                    json={
+                        "org_code" : settings.ZANA_POOL_ANON,
+                        "prefix" : settings.ZANA_POOL_ANON,
+                        "pool" : settings.ZANA_POOL_ANON,
+                        "linkage_id" : default_central_sample_id,
+                    }
+                )
+    assert response.ok
+    default_anonymous_sample_id = response.json()["zeal"]
+else:
+    default_anonymous_sample_id = None
+
 user_anonymous_sample_id = "%s-%s" % (settings.ANON_PREFIXES[0] if settings.ANON_PREFIXES else "TEST", "00000001")
 user_anonymous_sample_id_2 = "%s-%s" % (settings.ANON_PREFIXES[0] if settings.ANON_PREFIXES else "TEST", "00000002")                     
 
@@ -999,6 +1003,17 @@ class OAuthBiosampleArtifactTest(OAuthAPIClientBase):
         bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
         assert bs.anonymous_sample_id == default_anonymous_sample_id
 
+    def test_add_biosample_anonymous_sample_id_null_default_ok(self):
+        payload = copy.deepcopy(self.default_payload)
+        payload["biosamples"][0]["anonymous_sample_id"] = ""
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == default_anonymous_sample_id
+
     def test_add_biosample_anonymous_sample_id_ok(self):
         perm = Permission.objects.get(codename="can_add_anonymous_sample_id")
         self.user.user_permissions.add(perm)
@@ -1012,6 +1027,45 @@ class OAuthBiosampleArtifactTest(OAuthAPIClientBase):
         assert models.BiosampleArtifact.objects.count() == 1
         bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
         assert bs.anonymous_sample_id == user_anonymous_sample_id
+
+    def test_change_biosample_anonymous_sample_id_null_reset_ok(self):
+        payload = copy.deepcopy(self.default_payload)
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == default_anonymous_sample_id
+        
+        # Something terrible has happened
+        bs.anonymous_sample_id = None
+        bs.save()
+
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == None
+
+        # Empty update, should set id back to normal
+        update_payload = {
+            "username": "user",
+            "token": "oauth",
+            "biosamples": [
+                {
+                    "central_sample_id": default_central_sample_id,
+                }
+
+            ],
+            "client_name": "pytest",
+            "client_version": 1,
+        }
+        response = self.c.post(self.update_endpoint, update_payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.update_token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == default_anonymous_sample_id 
 
     def test_change_biosample_anonymous_sample_id_ok(self):
         payload = copy.deepcopy(self.default_payload)
@@ -1091,6 +1145,54 @@ class OAuthBiosampleArtifactTest(OAuthAPIClientBase):
             "biosamples": [
                 {
                     "central_sample_id": default_central_sample_id,
+                }
+
+            ],
+            "client_name": "pytest",
+            "client_version": 1,
+        }
+        response = self.c.post(self.update_endpoint, update_payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.update_token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == user_anonymous_sample_id
+    
+    def test_add_change_biosample_anonymous_sample_id_null_preserved_ok(self):
+        perm = Permission.objects.get(codename="can_add_anonymous_sample_id")
+        self.user.user_permissions.add(perm)
+
+        # Add, with id
+        payload = copy.deepcopy(self.default_payload)
+        payload["biosamples"][0]["anonymous_sample_id"] = user_anonymous_sample_id
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == user_anonymous_sample_id
+
+        # Add, with id key but its empty
+        payload = copy.deepcopy(self.default_payload)
+        payload["biosamples"][0]["anonymous_sample_id"] = ""
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == user_anonymous_sample_id  
+
+        # Partial update, with id key but its empty
+        update_payload = {
+            "username": "user",
+            "token": "oauth",
+            "biosamples": [
+                {
+                    "central_sample_id": default_central_sample_id,
+                    "anonymous_sample_id" : "",
                 }
 
             ],
@@ -1859,7 +1961,8 @@ class OAuthEmptyBiosampleArtifactTest(OAuthAPIClientBase):
             assert sample.get_metadata_as_struct() == biosample.get("metadata", {})
             assert len(sample.get_metadata_as_struct()) == len(biosample.get("metadata", {}))
     
-    def test_put_empty_biosampleartifact_anonymous_sample_id_default_ok(self):
+    def test_put_empty_biosampleartifact_put_again_anonymous_sample_id_ok(self):
+        # Put, no id
         payload = {
             "username": self.user.username,
             "token": "oauth",
@@ -1873,12 +1976,12 @@ class OAuthEmptyBiosampleArtifactTest(OAuthAPIClientBase):
         self.assertEqual(j["errors"], 0)
         assert models.BiosampleArtifact.objects.count() == 1
         bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
-        assert bs.anonymous_sample_id == default_anonymous_sample_id
+        assert bs.anonymous_sample_id == None
 
-    def test_put_empty_biosampleartifact_anonymous_sample_id_ok(self):
         perm = Permission.objects.get(codename="can_add_anonymous_sample_id")
         self.user.user_permissions.add(perm)
 
+        # Re-put, with id
         payload = {
             "username": self.user.username,
             "token": "oauth",
@@ -1894,7 +1997,8 @@ class OAuthEmptyBiosampleArtifactTest(OAuthAPIClientBase):
         bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
         assert bs.anonymous_sample_id == user_anonymous_sample_id
 
-    def test_change_empty_biosampleartifact_anonymous_sample_id_ok(self):
+    def test_put_empty_biosampleartifact_sid_anonymous_sample_id_ok(self):
+        # Put, no ids
         payload = {
             "username": self.user.username,
             "token": "oauth",
@@ -1908,18 +2012,132 @@ class OAuthEmptyBiosampleArtifactTest(OAuthAPIClientBase):
         self.assertEqual(j["errors"], 0)
         assert models.BiosampleArtifact.objects.count() == 1
         bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
-        assert bs.anonymous_sample_id == default_anonymous_sample_id
+        assert bs.sender_sample_id == None
+        assert bs.anonymous_sample_id == None
+
+        perm = Permission.objects.get(codename="can_add_anonymous_sample_id")
+        self.user.user_permissions.add(perm)
+
+        # Put, ids
+        payload = {
+            "username": self.user.username,
+            "token": "oauth",
+            "biosamples": [
+                {"central_sample_id": default_central_sample_id, "sender_sample_id" : "SECRET-0001", "anonymous_sample_id" : user_anonymous_sample_id},
+            ],
+        }
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.sender_sample_id == "SECRET-0001"
+        assert bs.anonymous_sample_id == user_anonymous_sample_id
+
+        # Re-put, no ids
+        payload = {
+            "username": self.user.username,
+            "token": "oauth",
+            "biosamples": [
+                {"central_sample_id": default_central_sample_id},
+            ],
+        }
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.sender_sample_id == "SECRET-0001"
+        assert bs.anonymous_sample_id == user_anonymous_sample_id
+
+    def test_change_empty_biosampleartifact_anonymous_sample_id_ok(self):
+        # Put, no id
+        payload = {
+            "username": self.user.username,
+            "token": "oauth",
+            "biosamples": [
+                {"central_sample_id": default_central_sample_id},
+            ],
+        }
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == None
+
+        perm = Permission.objects.get(codename="can_add_anonymous_sample_id")
+        self.user.user_permissions.add(perm)
+
+        # Put, with id
+        payload = {
+            "username": self.user.username,
+            "token": "oauth",
+            "biosamples": [
+                {"central_sample_id": default_central_sample_id, "anonymous_sample_id" : user_anonymous_sample_id},
+            ],
+        }
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == user_anonymous_sample_id
 
         perm = Permission.objects.get(codename="can_change_anonymous_sample_id")
         self.user.user_permissions.add(perm)
 
+        # Put, changing id
         payload = {
             "username": self.user.username,
             "token": "oauth",
             "biosamples": [
                 {
                     "central_sample_id": default_central_sample_id, 
-                    "anonymous_sample_id" : user_anonymous_sample_id,
+                    "anonymous_sample_id" : user_anonymous_sample_id_2,
+                },
+            ],
+        }
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == user_anonymous_sample_id_2
+
+    def test_change_empty_biosampleartifact_anonymous_sample_id_null_preserved_ok(self):
+        perm = Permission.objects.get(codename="can_add_anonymous_sample_id")
+        self.user.user_permissions.add(perm)
+
+        # Put, with id
+        payload = {
+            "username": self.user.username,
+            "token": "oauth",
+            "biosamples": [
+                {"central_sample_id": default_central_sample_id, "anonymous_sample_id" : user_anonymous_sample_id},
+            ],
+        }
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == user_anonymous_sample_id
+
+        # Put, with id key but its empty
+        payload = {
+            "username": self.user.username,
+            "token": "oauth",
+            "biosamples": [
+                {
+                    "central_sample_id": default_central_sample_id, 
+                    "anonymous_sample_id" : "",
                 },
             ],
         }
@@ -2057,29 +2275,16 @@ class OAuthEmptyBiosampleArtifactTest(OAuthAPIClientBase):
         assert models.BiosampleArtifact.objects.count() == 0
 
     def test_change_empty_biosampleartifact_anonymous_sample_id_noperm_bad(self):
-        payload = {
-            "username": self.user.username,
-            "token": "oauth",
-            "biosamples": [
-                {"central_sample_id": default_central_sample_id},
-            ],
-        }
-        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
-        self.assertEqual(200, response.status_code)
-        j = response.json()
-        self.assertEqual(j["errors"], 0)
-        assert models.BiosampleArtifact.objects.count() == 1
-        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
-        assert bs.anonymous_sample_id == default_anonymous_sample_id
+        perm = Permission.objects.get(codename="can_add_anonymous_sample_id")
+        self.user.user_permissions.add(perm)
 
-        # ID is the same, no effect
         payload = {
             "username": self.user.username,
             "token": "oauth",
             "biosamples": [
-                {  
-                    "central_sample_id": default_central_sample_id,
-                    "anonymous_sample_id" : default_anonymous_sample_id,
+                {
+                    "central_sample_id": default_central_sample_id, 
+                    "anonymous_sample_id" : user_anonymous_sample_id,
                 },
             ],
         }
@@ -2089,9 +2294,9 @@ class OAuthEmptyBiosampleArtifactTest(OAuthAPIClientBase):
         self.assertEqual(j["errors"], 0)
         assert models.BiosampleArtifact.objects.count() == 1
         bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
-        assert bs.anonymous_sample_id == default_anonymous_sample_id
+        assert bs.anonymous_sample_id == user_anonymous_sample_id
 
-        # ID is different, rejected
+        # ID is the same, no effect
         payload = {
             "username": self.user.username,
             "token": "oauth",
@@ -2105,11 +2310,30 @@ class OAuthEmptyBiosampleArtifactTest(OAuthAPIClientBase):
         response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
         self.assertEqual(200, response.status_code)
         j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == user_anonymous_sample_id
+
+        # ID is different, rejected
+        payload = {
+            "username": self.user.username,
+            "token": "oauth",
+            "biosamples": [
+                {  
+                    "central_sample_id": default_central_sample_id,
+                    "anonymous_sample_id" : user_anonymous_sample_id_2,
+                },
+            ],
+        }
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
         self.assertEqual(j["errors"], 1)
         self.assertEqual("You do not have permission to change the anonymous_sample_id on BiosampleArtifact %s" % default_central_sample_id, "".join(j["messages"][0]))
         assert models.BiosampleArtifact.objects.count() == 1
         bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
-        assert bs.anonymous_sample_id == default_anonymous_sample_id       
+        assert bs.anonymous_sample_id == user_anonymous_sample_id       
 
     def test_put_empty_biosampleartifact_anonymous_sample_id_wrongformat_bad(self):
         perm = Permission.objects.get(codename="can_add_anonymous_sample_id")
@@ -2233,6 +2457,19 @@ class OAuthEmptyBiosampleArtifactTest(OAuthAPIClientBase):
         bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
         assert bs.anonymous_sample_id == user_anonymous_sample_id
 
+        # Add full record with empty id
+        payload = copy.deepcopy(default_payload)
+        payload["username"] = "oauth"
+        payload["token"] = "oauth"
+        payload["biosamples"][0]["anonymous_sample_id"] = ""
+        response = self.c.post(self.endpoint.replace("addempty", "add"), payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.full_token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == user_anonymous_sample_id
+
     def test_add_then_put_empty_biosampleartifact_anonymous_sample_preserved_ok(self):
         perm = Permission.objects.get(codename="can_add_anonymous_sample_id")
         self.user.user_permissions.add(perm)
@@ -2267,3 +2504,53 @@ class OAuthEmptyBiosampleArtifactTest(OAuthAPIClientBase):
         assert models.BiosampleArtifact.objects.count() == 1
         bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
         assert bs.anonymous_sample_id == user_anonymous_sample_id
+
+        # Add empty record with empty key
+        payload = {
+            "username": self.user.username,
+            "token": "oauth",
+            "biosamples": [
+                {
+                    "central_sample_id": default_central_sample_id, 
+                    "anonymous_sample_id" : "",
+                },
+            ],
+        }
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == user_anonymous_sample_id
+
+    def test_put_empty_biosampleartifact_then_add_default_anonymous_sample_ok(self):
+        # Add empty record without id
+        payload = {
+            "username": self.user.username,
+            "token": "oauth",
+            "biosamples": [
+                {
+                    "central_sample_id": default_central_sample_id, 
+                },
+            ],
+        }
+        response = self.c.post(self.endpoint, payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == None
+
+        # Add full record without id, one should be generated
+        payload = copy.deepcopy(default_payload)
+        payload["username"] = "oauth"
+        payload["token"] = "oauth"
+        response = self.c.post(self.endpoint.replace("addempty", "add"), payload, secure=True, content_type="application/json", HTTP_AUTHORIZATION="Bearer %s" % self.full_token)
+        self.assertEqual(200, response.status_code)
+        j = response.json()
+        self.assertEqual(j["errors"], 0)
+        assert models.BiosampleArtifact.objects.count() == 1
+        bs = models.BiosampleArtifact.objects.get(central_sample_id=default_central_sample_id)
+        assert bs.anonymous_sample_id == default_anonymous_sample_id

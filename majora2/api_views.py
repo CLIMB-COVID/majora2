@@ -952,34 +952,8 @@ def addempty_biosample(request):
                         api_o["ignored"].append(central_sample_id)
                         api_o["messages"].append("You do not have permission to add the anonymous_sample_id on BiosampleArtifact %s" % central_sample_id)
                         continue           
-            else:
-                # The user has not provided an id
-                if bs_anonymous_sample_id:
-                    # An id already exists on the biosample
-                    # This is not a PUT operation, so don't need to do anything
-                    pass
-                else:
-                    if settings.ISSUE_ZANA_IDS:
-                        # There is no id on the biosample
-                        # So issue a new id from ZANA
-                        # Use the central_sample_id as the ZANA linkage_id
-                        zeal = zana_issue_anonymous_sample_id(central_sample_id)
-                            
-                        if zeal:
-                            # Issued id successfully
-                            anonymous_sample_id = zeal
-                        else:
-                            # Failed to issue the id, reject
-                            api_o["errors"] += 1
-                            api_o["ignored"].append(central_sample_id)
-                            api_o["messages"].append("Failed to issue anonymous_sample_id. Please try again. If the issue persists, contact a system administrator.")
-                            continue
-                    else:
-                        api_o["warnings"] += 1
-                        api_o["messages"].append("ZANA has not been enabled to issue the anonymous_sample_id. If you wish to enable this behaviour, contact a system administrator.")
 
-            # Validate central_sample_id and anonymous_sample_id pairing+uniqueness using the biosample form
-            if anonymous_sample_id:
+                # Validate central_sample_id and anonymous_sample_id pairing+uniqueness using the biosample form
                 sample_form = forms.BiosampleArtifactModelForm(
                     {"central_sample_id" : central_sample_id, "anonymous_sample_id" : anonymous_sample_id}, 
                     initial={}, 
@@ -1153,6 +1127,10 @@ class BiosampleArtifactEndpointView(MajoraEndpointView):
                             continue
                 else:
                     # The user has not provided an id
+                    # Try removing the key, just in case an empty string was provided
+                    # On partial this would update it to null
+                    biosample.pop("anonymous_sample_id", None)
+
                     if bs_anonymous_sample_id:
                         # An id already exists on the biosample
                         if not partial:
