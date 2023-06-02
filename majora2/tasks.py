@@ -60,6 +60,7 @@ def task_get_sequencing_faster(request, api_o, json_data, user=None, **kwargs):
                 biosample_ids = models.MajoraArtifactProcessRecord.objects.filter(out_artifact__id=lib_id).values_list("in_artifact__id", flat=True).distinct()
                 lib["biosamples"] = {x["central_sample_id"]: x for x in models.BiosampleArtifact.objects.filter(id__in=biosample_ids).values(
                     'central_sample_id',
+                    'anonymous_sample_id',
                     'root_sample_id',
                     'sample_type_collected',
                     'root_biosample_source_id',
@@ -351,6 +352,7 @@ def task_get_pag_v2(request, api_o, json_data, user=None, **kwargs):
     ).values(
             'groups__publishedartifactgroup__published_name',
             'central_sample_id',
+            'anonymous_sample_id',
             collection_date=F('created__biosourcesamplingprocess__collection_date'),
             received_date=F('created__biosourcesamplingprocess__received_date'),
             submission_user=F('created__biosourcesamplingprocess__submission_user__username'),

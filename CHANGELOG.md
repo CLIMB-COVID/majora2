@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 12.12.1 2023-06-02
+### Changed
+* The tasks `task_get_sequencing_faster` and `task_get_pag_v2` now include the `anonymous_sample_id` in the output `BiosampleArtifact` fields.
+
 ## 12.12.0 2023-05-30
 ### Added
 * Tests for `add biosample` and `addempty biosample` behaviour when `anonymous_sample_id` is provided as `""`, or `None`.
