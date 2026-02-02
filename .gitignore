@@ -7,6 +7,7 @@ static/*
 *.orig
 ignore/*
 venv*/
+.venv
 wsgi.ini
 restart.sh
 private/*
