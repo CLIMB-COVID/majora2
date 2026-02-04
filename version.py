@@ -1,2 +1,2 @@
-__VERSION__="12.9.9-climbcovid"
-__VERSION_NAME__="Don't Panic"
+__VERSION__ = "12.13.0-climbcovid"
+__VERSION_NAME__ = "Don't Panic"
