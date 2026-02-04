@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 12.13.0 2026-02-04
+### Added
+* Added legacy management commands `cog_load_accessions` and `reset_user`.
+* Added permission management commands `export_user_permissions`, `import_user_permissions`, `remove_user_permissions` and `remove_user_groups`.
+
+### Changed
+* Bumped `django` from `2.2.27` to `3.2.25`.
+* Bumped `django-polymorphic` from `2.1.2` to `3.1.0`.
+
 ## 12.12.1 2023-06-02
 ### Changed
 * The tasks `task_get_sequencing_faster` and `task_get_pag_v2` now include the `anonymous_sample_id` in the output `BiosampleArtifact` fields.
