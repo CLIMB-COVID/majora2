@@ -1,10 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-
 from django.contrib.auth.models import User, Permission, Group
-
 from tatl import models
-
 import sys
 import json
 
@@ -29,8 +26,7 @@ class Command(BaseCommand):
             print("[FAIL] Could not read input file: %s" % e)
             sys.exit(1)
 
-        assigned_groups = []
-        assigned_permissions = []
+        altered_users = []
 
         for user_data in import_data:
             try:
@@ -41,57 +37,46 @@ class Command(BaseCommand):
                 )
                 continue
 
-            # Assign groups
+            # User groups
+            user_groups = []
             for group_name in user_data.get("groups", []):
                 try:
                     group = Group.objects.get(name=group_name)
-                    if not user.groups.filter(pk=group.pk).exists():
-                        user.groups.add(group)
-                        assigned_groups.append(
-                            {"username": user.username, "group": group_name}
-                        )
-                        sys.stderr.write(
-                            "[NOTE] User %s added to group %s\n"
-                            % (user.username, group_name)
-                        )
+                    user_groups.append(group)
                 except Group.DoesNotExist:
                     sys.stderr.write("[WARN] Group %s not found\n" % group_name)
 
-            # Assign direct permissions
+            # Direct permissions
+            user_permissions = []
             for perm_codename in user_data.get("permissions", []):
                 try:
                     permission = Permission.objects.get(codename=perm_codename)
-                    if permission not in user.user_permissions.all():
-                        user.user_permissions.add(permission)
-                        assigned_permissions.append(
-                            {"username": user.username, "permission": perm_codename}
-                        )
-                        sys.stderr.write(
-                            "[NOTE] Permission %s assigned to user %s\n"
-                            % (perm_codename, user.username)
-                        )
+                    user_permissions.append(permission)
                 except Permission.DoesNotExist:
                     sys.stderr.write("[WARN] Permission %s not found\n" % perm_codename)
 
-            user.save()
+            # Assign the groups and permissions to the user
+            user.groups.set(user_groups)
+            user.user_permissions.set(user_permissions)
 
-        if assigned_groups or assigned_permissions:
+            if user_groups or user_permissions:
+                altered_users.append(user.username)
+                sys.stderr.write(
+                    "[NOTE] Updated user %s: %d groups, %d permissions\n"
+                    % (user.username, len(user_groups), len(user_permissions))
+                )
+
+        if altered_users:
             treq = models.TatlPermFlex(
                 user=su,
                 substitute_user=None,
                 used_permission="tatl.management.commands.import_user_permissions",
                 timestamp=timezone.now(),
                 content_object=su,
-                extra_context=json.dumps(
-                    {
-                        "assigned_groups": assigned_groups,
-                        "assigned_permissions": assigned_permissions,
-                    }
-                ),
+                extra_context=json.dumps({"altered_users": len(altered_users)}),
             )
             treq.save()
 
         sys.stderr.write(
-            "[DONE] Assigned %d groups and %d permissions\n"
-            % (len(assigned_groups), len(assigned_permissions))
+            "[DONE] Assigned groups and permissions to %d users\n" % len(altered_users)
         )
