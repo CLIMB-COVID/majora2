@@ -1,10 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-
 from django.contrib.auth.models import User, Permission
-
 from tatl import models
-
 import sys
 import json
 
@@ -29,11 +26,9 @@ class Command(BaseCommand):
             print("[FAIL] No superuser found.")
             sys.exit(1)
 
-        exclude_users = set(options["exclude"])
         permissions_to_remove = []
 
         for p in options["permissions"]:
-            p = p.split(".")[-1]
             try:
                 permission = Permission.objects.get(codename=p)
                 permissions_to_remove.append(permission)
@@ -44,7 +39,8 @@ class Command(BaseCommand):
             print("[FAIL] No valid permissions specified.")
             sys.exit(1)
 
-        affected_users = []
+        exclude_users = set(options["exclude"])
+        removed_users = []
 
         for user in User.objects.all():
             if user.username in exclude_users:
@@ -58,31 +54,28 @@ class Command(BaseCommand):
                     user_perms_removed.append(perm.codename)
 
             if user_perms_removed:
-                user.save()
-                affected_users.append(
-                    {"username": user.username, "permissions": user_perms_removed}
-                )
+                removed_users.append(user.username)
                 sys.stderr.write(
                     "[NOTE] Removed permissions %s from user %s\n"
                     % (user_perms_removed, user.username)
                 )
 
-        if affected_users:
+        if removed_users:
             treq = models.TatlPermFlex(
                 user=su,
                 substitute_user=None,
-                used_permission="tatl.management.commands.remove_permissions_from_users",
+                used_permission="tatl.management.commands.remove_user_permissions",
                 timestamp=timezone.now(),
                 content_object=su,
                 extra_context=json.dumps(
                     {
-                        "affected_users": affected_users,
-                        "excluded_users": list(exclude_users),
+                        "permissions": [p.codename for p in permissions_to_remove],
+                        "affected_users": len(removed_users),
                     }
                 ),
             )
             treq.save()
 
         sys.stderr.write(
-            "[DONE] Removed permissions from %d users\n" % len(affected_users)
+            "[DONE] Removed permissions from %d users\n" % len(removed_users)
         )

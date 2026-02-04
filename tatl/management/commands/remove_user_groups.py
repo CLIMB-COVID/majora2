@@ -1,10 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-
 from django.contrib.auth.models import User, Group
-
 from tatl import models
-
 import sys
 import json
 
@@ -49,13 +46,13 @@ class Command(BaseCommand):
             treq = models.TatlPermFlex(
                 user=su,
                 substitute_user=None,
-                used_permission="tatl.management.commands.remove_users_from_group",
+                used_permission="tatl.management.commands.remove_user_groups",
                 timestamp=timezone.now(),
                 content_object=group,
                 extra_context=json.dumps(
                     {
-                        "removed_users": removed_users,
-                        "excluded_users": list(exclude_users),
+                        "group": group.name,
+                        "removed_users": len(removed_users),
                     }
                 ),
             )
