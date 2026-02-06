@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 12.13.1 2026-02-06
+### Changed
+* Management command `remove_user_groups` now allows reassigning of select permissions from this group directly.
+
 ## 12.13.0 2026-02-04
 ### Added
 * Added legacy management commands `cog_load_accessions` and `reset_user`.

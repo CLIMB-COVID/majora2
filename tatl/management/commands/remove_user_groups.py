@@ -14,6 +14,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--exclude", nargs="*", default=[], help="Usernames to exclude"
         )
+        parser.add_argument(
+            "--reassign",
+            nargs="*",
+            default=[],
+            help="Reassign permissions to these users directly",
+        )
 
     def handle(self, *args, **options):
         try:
@@ -30,6 +36,9 @@ class Command(BaseCommand):
 
         exclude_users = set(options["exclude"])
         removed_users = []
+        reassigned_permissions = group.permissions.filter(
+            codename__in=options["reassign"]
+        )
 
         for user in User.objects.filter(groups=group):
             if user.username in exclude_users:
@@ -41,6 +50,13 @@ class Command(BaseCommand):
             sys.stderr.write(
                 "[NOTE] User %s removed from group %s\n" % (user.username, group.name)
             )
+
+            for permission in reassigned_permissions:
+                user.user_permissions.add(permission)
+                sys.stderr.write(
+                    "[NOTE] Permission %s reassigned to user %s\n"
+                    % (permission.codename, user.username)
+                )
 
         if removed_users:
             treq = models.TatlPermFlex(
